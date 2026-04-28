@@ -1,6 +1,33 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #fcf9f0;
+  --color-surface-dim: #dddad1;
+  --color-surface-bright: #fcf9f0;
+  --color-surface-container: #f1eee5;
+  
+  --color-primary: #552c00;
+  --color-primary-container: #704214;
+  
+  --color-secondary: #4c5f7c;
+  --color-tertiary: #5a2627;
+  
+  --color-on-surface: #1c1c17;
+  --color-on-surface-variant: #51443a;
+  
+  --color-outline: #847469;
+  --color-outline-variant: #d6c3b6;
+  
+  --font-heading: "Newsreader", serif;
+  --font-body: "Work Sans", sans-serif;
+  
+  --shadow-soft: 0 4px 20px rgba(112, 66, 20, 0.08);
+  --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+  
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.5rem;
+}
 
 @layer base {
   body {
@@ -16,7 +43,7 @@
 
 @layer components {
   .auth-card {
-    @apply bg-surface-bright p-10 w-full max-auto border border-outline-variant shadow-soft relative rounded-md;
+    @apply bg-surface-bright p-10 w-full max-w-[400px] border border-outline-variant shadow-soft relative rounded-md;
   }
 
   .auth-card::after {
