@@ -56,12 +56,10 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "OK" });
 });
 
-// Serve frontend build
 const frontendPath = path.join(__dirname, "../frontend/dist");
 app.use(express.static(frontendPath));
 
-// React fallback (SPA routing)
-app.get("*", (req, res) => {
+app.use((req, res) => {
   res.sendFile(path.join(frontendPath, "index.html"));
 });
 
