@@ -19,9 +19,28 @@ const DEFAULT_EVENT_FORM: EventPayload = {
   calendarId: '',
 };
 
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+type EventPanelMode = 'closed' | 'create' | 'view' | 'edit';
+
+const formatDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const formatDateTimeInput = (value: string) => {
   if (!value) return '';
-  return new Date(value).toISOString().slice(0, 16);
+
+  const date = new Date(value);
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
 const formatDateTimeLabel = (value: string) =>
@@ -29,6 +48,44 @@ const formatDateTimeLabel = (value: string) =>
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+
+const formatTimeLabel = (value: string) =>
+  new Date(value).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+
+const getMonthLabel = (date: Date) =>
+  date.toLocaleDateString([], {
+    month: 'long',
+    year: 'numeric',
+  });
+
+const getMonthGrid = (date: Date) => {
+  const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  const startOffset = startOfMonth.getDay();
+  const gridStart = new Date(startOfMonth);
+  gridStart.setDate(startOfMonth.getDate() - startOffset);
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const current = new Date(gridStart);
+    current.setDate(gridStart.getDate() + index);
+    return current;
+  });
+};
+
+const getDefaultEventRange = (date: Date) => {
+  const start = new Date(date);
+  start.setHours(9, 0, 0, 0);
+
+  const end = new Date(date);
+  end.setHours(10, 0, 0, 0);
+
+  return {
+    start: formatDateTimeInput(start.toISOString()),
+    end: formatDateTimeInput(end.toISOString()),
+  };
+};
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -38,17 +95,18 @@ const Dashboard: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedCalendarId, setSelectedCalendarId] = useState<string>('all');
   const [eventForm, setEventForm] = useState<EventPayload>(DEFAULT_EVENT_FORM);
-  const [eventPanelOpen, setEventPanelOpen] = useState(false);
-  const [eventDetails, setEventDetails] = useState<CalendarEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
-  const [eventsLoading, setEventsLoading] = useState(true);
-  const [eventSubmitting, setEventSubmitting] = useState(false);
-  const [eventError, setEventError] = useState('');
-  const [eventSuccessMessage, setEventSuccessMessage] = useState('');
+  const [eventPanelMode, setEventPanelMode] = useState<EventPanelMode>('closed');
+  const [calendarViewDate, setCalendarViewDate] = useState(() => new Date());
   const [loading, setLoading] = useState(true);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [eventSubmitting, setEventSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [eventError, setEventError] = useState('');
+  const [eventSuccessMessage, setEventSuccessMessage] = useState('');
 
   const handleLogout = () => {
     authService.logout();
@@ -62,6 +120,7 @@ const Dashboard: React.FC = () => {
         setEventsLoading(true);
         setError('');
         setEventError('');
+
         const [calendarData, eventData] = await Promise.all([
           calendarService.list(),
           eventService.list(),
@@ -95,6 +154,26 @@ const Dashboard: React.FC = () => {
     setEditingId(null);
   };
 
+  const resetEventPanel = (calendarId?: string, date?: Date) => {
+    const nextCalendarId =
+      calendarId ?? (selectedCalendarId !== 'all' ? selectedCalendarId : calendars[0]?._id || '');
+    const range = date ? getDefaultEventRange(date) : { start: '', end: '' };
+
+    setEventForm({
+      ...DEFAULT_EVENT_FORM,
+      ...range,
+      calendarId: nextCalendarId,
+    });
+    setSelectedEvent(null);
+    setEditingEventId(null);
+  };
+
+  const closeEventPanel = () => {
+    setEventPanelMode('closed');
+    setEventError('');
+    resetEventPanel();
+  };
+
   const handleChange = (
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
@@ -103,18 +182,6 @@ const Dashboard: React.FC = () => {
       ...current,
       [name]: value,
     }));
-  };
-
-  const resetEventForm = (calendarId?: string) => {
-    const nextCalendarId =
-      calendarId ?? (selectedCalendarId !== 'all' ? selectedCalendarId : calendars[0]?._id || '');
-
-    setEventForm({
-      ...DEFAULT_EVENT_FORM,
-      calendarId: nextCalendarId,
-    });
-    setEditingEventId(null);
-    setEventDetails(null);
   };
 
   const handleEventFieldChange = (
@@ -174,9 +241,14 @@ const Dashboard: React.FC = () => {
     try {
       await calendarService.remove(id);
       setCalendars((current) => current.filter((calendar) => calendar._id !== id));
+      setEvents((current) => current.filter((event) => event.calendarId !== id));
 
       if (editingId === id) {
         resetForm();
+      }
+
+      if (selectedCalendarId === id) {
+        setSelectedCalendarId('all');
       }
 
       setSuccessMessage('Calendar deleted.');
@@ -185,21 +257,20 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const openCreateEventPanel = (calendarId?: string) => {
-    resetEventForm(calendarId);
+  const openCreateEventPanel = (calendarId?: string, date?: Date) => {
+    resetEventPanel(calendarId, date);
     setEventError('');
     setEventSuccessMessage('');
-    setEventPanelOpen(true);
+    setEventPanelMode('create');
   };
 
   const handleEventClick = async (id: string) => {
     setEventError('');
     setEventSuccessMessage('');
-    setEventPanelOpen(true);
 
     try {
       const data = await eventService.getById(id);
-      setEventDetails(data);
+      setSelectedEvent(data);
       setEditingEventId(null);
       setEventForm({
         title: data.title,
@@ -209,14 +280,16 @@ const Dashboard: React.FC = () => {
         location: data.location || '',
         calendarId: data.calendarId,
       });
+      setEventPanelMode('view');
     } catch (err) {
       setEventError(err instanceof Error ? err.message : 'Unable to fetch event details');
+      setEventPanelMode('closed');
     }
   };
 
   const handleEditEvent = (event: CalendarEvent) => {
     setEditingEventId(event._id);
-    setEventDetails(event);
+    setSelectedEvent(event);
     setEventForm({
       title: event.title,
       description: event.description || '',
@@ -227,6 +300,7 @@ const Dashboard: React.FC = () => {
     });
     setEventError('');
     setEventSuccessMessage('');
+    setEventPanelMode('edit');
   };
 
   const handleEventSubmit = async (event: React.FormEvent) => {
@@ -255,7 +329,8 @@ const Dashboard: React.FC = () => {
             .map((item) => (item._id === editingEventId ? updatedEvent : item))
             .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
         );
-        setEventDetails(updatedEvent);
+        setSelectedEvent(updatedEvent);
+        setEventPanelMode('view');
         setEventSuccessMessage('Event updated.');
       } else {
         const newEvent = await eventService.create(eventForm);
@@ -264,8 +339,9 @@ const Dashboard: React.FC = () => {
             (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
           ),
         );
-        setEventDetails(newEvent);
+        setSelectedEvent(newEvent);
         setEditingEventId(newEvent._id);
+        setEventPanelMode('view');
         setEventSuccessMessage('Event created.');
       }
     } catch (err) {
@@ -282,8 +358,7 @@ const Dashboard: React.FC = () => {
     try {
       await eventService.remove(id);
       setEvents((current) => current.filter((item) => item._id !== id));
-      resetEventForm();
-      setEventPanelOpen(false);
+      closeEventPanel();
       setEventSuccessMessage('Event deleted.');
     } catch (err) {
       setEventError(err instanceof Error ? err.message : 'Unable to delete event');
@@ -296,6 +371,19 @@ const Dashboard: React.FC = () => {
 
   const calendarNameById = new Map(calendars.map((calendar) => [calendar._id, calendar.title]));
   const calendarColorById = new Map(calendars.map((calendar) => [calendar._id, calendar.color]));
+  const eventsByDay = filteredEvents.reduce<Record<string, CalendarEvent[]>>((acc, event) => {
+    const key = formatDateKey(new Date(event.start));
+    if (!acc[key]) {
+      acc[key] = [];
+    }
+    acc[key].push(event);
+    acc[key].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    return acc;
+  }, {});
+
+  const monthGrid = getMonthGrid(calendarViewDate);
+  const visibleMonth = calendarViewDate.getMonth();
+  const todayKey = formatDateKey(new Date());
 
   return (
     <div className="min-h-screen p-6 md:p-8">
@@ -472,10 +560,10 @@ const Dashboard: React.FC = () => {
 
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="bg-surface-bright border border-outline-variant p-6 md:p-8 rounded-lg shadow-soft">
-            <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-8">
+            <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between mb-8">
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-tertiary mb-2">Events</p>
-                <h2 className="text-2xl">Calendar schedule</h2>
+                <p className="text-xs uppercase tracking-[0.3em] text-tertiary mb-2">Calendar View</p>
+                <h2 className="text-2xl">{getMonthLabel(calendarViewDate)}</h2>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <select
@@ -490,14 +578,33 @@ const Dashboard: React.FC = () => {
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  onClick={() => openCreateEventPanel()}
-                  disabled={calendars.length === 0}
-                  className="btn-primary sm:w-auto sm:px-6 sm:mt-0 disabled:opacity-50 disabled:hover:translate-y-0"
-                >
-                  New Event
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCalendarViewDate(
+                      new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() - 1, 1),
+                    )}
+                    className="px-4 py-3 border border-outline rounded-sm hover:bg-surface-container transition-colors"
+                  >
+                    Prev
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalendarViewDate(new Date())}
+                    className="px-4 py-3 border border-outline rounded-sm hover:bg-surface-container transition-colors"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalendarViewDate(
+                      new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() + 1, 1),
+                    )}
+                    className="px-4 py-3 border border-outline rounded-sm hover:bg-surface-container transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -505,67 +612,87 @@ const Dashboard: React.FC = () => {
             {eventError && <p className="text-error text-sm italic mb-4">{eventError}</p>}
 
             {eventsLoading ? (
-              <div className="h-48 border border-dashed border-outline-variant rounded-lg flex items-center justify-center text-on-surface-variant">
+              <div className="h-56 border border-dashed border-outline-variant rounded-lg flex items-center justify-center text-on-surface-variant">
                 Loading events...
               </div>
-            ) : filteredEvents.length === 0 ? (
+            ) : calendars.length === 0 ? (
               <div className="h-56 border border-dashed border-outline-variant rounded-lg flex flex-col items-center justify-center text-center px-6">
-                <p className="text-lg text-primary mb-2">No events yet.</p>
-                <p className="text-on-surface-variant mb-5">
-                  Create events from this screen and assign them to any calendar you manage.
+                <p className="text-lg text-primary mb-2">Create a calendar first.</p>
+                <p className="text-on-surface-variant">
+                  Events need a calendar owner before they can appear in the month view.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => openCreateEventPanel()}
-                  disabled={calendars.length === 0}
-                  className="px-5 py-3 border border-outline rounded-sm hover:bg-surface-container transition-colors disabled:opacity-50"
-                >
-                  Create first event
-                </button>
               </div>
             ) : (
-              <div className="grid gap-4">
-                {filteredEvents.map((event) => (
-                  <article
-                    key={event._id}
-                    className="border border-outline-variant rounded-lg p-5 bg-surface/60 cursor-pointer transition-colors hover:bg-surface-container"
-                    onClick={() => void handleEventClick(event._id)}
-                  >
-                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-3 mb-3">
-                          <span
-                            className="h-4 w-4 rounded-full border border-black/10 shrink-0"
-                            style={{ backgroundColor: calendarColorById.get(event.calendarId) || '#4c5f7c' }}
-                          />
-                          <h3 className="text-xl break-words">{event.title}</h3>
-                        </div>
-                        <p className="text-sm uppercase tracking-[0.2em] text-outline mb-2">
-                          {calendarNameById.get(event.calendarId) || 'Unassigned calendar'}
-                        </p>
-                        <p className="text-on-surface-variant mb-3 whitespace-pre-wrap">
-                          {event.description || 'No description provided.'}
-                        </p>
-                        <div className="flex flex-col gap-1 text-sm text-on-surface-variant">
-                          <span>{formatDateTimeLabel(event.start)}</span>
-                          <span>to {formatDateTimeLabel(event.end)}</span>
-                          <span>{event.location || 'No location set'}</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(clickEvent) => {
-                          clickEvent.stopPropagation();
-                          handleEditEvent(event);
-                          setEventPanelOpen(true);
-                        }}
-                        className="px-4 py-2 border border-outline rounded-sm hover:bg-surface-container transition-colors md:shrink-0"
-                      >
-                        Edit
-                      </button>
+              <div className="overflow-hidden rounded-lg border border-outline-variant">
+                <div className="grid grid-cols-7 bg-surface-container border-b border-outline-variant">
+                  {WEEKDAY_LABELS.map((label) => (
+                    <div
+                      key={label}
+                      className="px-3 py-3 text-xs font-semibold uppercase tracking-[0.2em] text-on-surface-variant"
+                    >
+                      {label}
                     </div>
-                  </article>
-                ))}
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-7">
+                  {monthGrid.map((day) => {
+                    const dayKey = formatDateKey(day);
+                    const dayEvents = eventsByDay[dayKey] || [];
+                    const isCurrentMonth = day.getMonth() === visibleMonth;
+                    const isToday = dayKey === todayKey;
+
+                    return (
+                      <button
+                        key={dayKey}
+                        type="button"
+                        onClick={() => openCreateEventPanel(undefined, day)}
+                        className={`min-h-[164px] border-b border-r border-outline-variant p-3 text-left transition-colors ${
+                          isCurrentMonth ? 'bg-surface-bright hover:bg-surface-container/60' : 'bg-surface-dim/35 text-outline hover:bg-surface-container/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <span
+                            className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-sm ${
+                              isToday ? 'bg-primary text-white' : 'text-on-surface'
+                            }`}
+                          >
+                            {day.getDate()}
+                          </span>
+                          <span className="text-[11px] uppercase tracking-[0.2em] text-on-surface-variant">
+                            {dayEvents.length ? `${dayEvents.length} events` : 'Add'}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2">
+                          {dayEvents.slice(0, 3).map((event) => (
+                            <div
+                              key={event._id}
+                              onClick={(clickEvent) => {
+                                clickEvent.stopPropagation();
+                                void handleEventClick(event._id);
+                              }}
+                              className="rounded-md px-3 py-2 text-sm shadow-sm"
+                              style={{
+                                backgroundColor: calendarColorById.get(event.calendarId) || '#4c5f7c',
+                                color: '#fffdf8',
+                              }}
+                            >
+                              <p className="font-semibold truncate">{event.title}</p>
+                              <p className="text-xs opacity-90">{formatTimeLabel(event.start)}</p>
+                            </div>
+                          ))}
+
+                          {dayEvents.length > 3 && (
+                            <p className="text-xs uppercase tracking-[0.2em] text-on-surface-variant">
+                              +{dayEvents.length - 3} more
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -574,24 +701,28 @@ const Dashboard: React.FC = () => {
             <div className="flex items-start justify-between gap-3 mb-6">
               <div>
                 <p className="text-xs uppercase tracking-[0.3em] text-secondary mb-2">
-                  {eventPanelOpen ? 'Event editor' : 'Event details'}
+                  {eventPanelMode === 'create'
+                    ? 'New event'
+                    : eventPanelMode === 'edit'
+                      ? 'Edit event'
+                      : eventPanelMode === 'view'
+                        ? 'Event details'
+                        : 'Event details'}
                 </p>
                 <h2 className="text-2xl">
-                  {editingEventId
-                    ? 'Edit event'
-                    : eventPanelOpen
-                      ? 'Create event'
-                      : 'Select an event'}
+                  {eventPanelMode === 'create'
+                    ? 'Create event'
+                    : eventPanelMode === 'edit'
+                      ? 'Update event'
+                      : eventPanelMode === 'view'
+                        ? selectedEvent?.title || 'Event details'
+                        : 'Select a day'}
                 </h2>
               </div>
-              {eventPanelOpen && (
+              {eventPanelMode !== 'closed' && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setEventPanelOpen(false);
-                    resetEventForm();
-                    setEventError('');
-                  }}
+                  onClick={closeEventPanel}
                   className="text-sm text-secondary underline underline-offset-4"
                 >
                   Close
@@ -599,9 +730,51 @@ const Dashboard: React.FC = () => {
               )}
             </div>
 
-            {!eventPanelOpen && !eventDetails ? (
+            {eventPanelMode === 'closed' ? (
               <div className="border border-dashed border-outline-variant rounded-lg p-6 text-on-surface-variant">
-                Open an existing event to review its details, or create a new one from the schedule list.
+                Click any day in the month view to create an event, or click an event chip to inspect its details.
+              </div>
+            ) : eventPanelMode === 'view' && selectedEvent ? (
+              <div className="space-y-5">
+                <div className="rounded-lg border border-outline-variant bg-surface-container/70 p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span
+                      className="h-4 w-4 rounded-full border border-black/10"
+                      style={{ backgroundColor: calendarColorById.get(selectedEvent.calendarId) || '#4c5f7c' }}
+                    />
+                    <p className="text-sm uppercase tracking-[0.2em] text-on-surface-variant">
+                      {calendarNameById.get(selectedEvent.calendarId) || 'Calendar'}
+                    </p>
+                  </div>
+                  <p className="text-on-surface-variant whitespace-pre-wrap">
+                    {selectedEvent.description || 'No description provided.'}
+                  </p>
+                </div>
+
+                <div className="space-y-3 text-sm text-on-surface-variant">
+                  <p><span className="font-semibold text-primary">Starts:</span> {formatDateTimeLabel(selectedEvent.start)}</p>
+                  <p><span className="font-semibold text-primary">Ends:</span> {formatDateTimeLabel(selectedEvent.end)}</p>
+                  <p><span className="font-semibold text-primary">Location:</span> {selectedEvent.location || 'No location set'}</p>
+                  <p><span className="font-semibold text-primary">Created:</span> {formatDateTimeLabel(selectedEvent.createdAt)}</p>
+                  <p><span className="font-semibold text-primary">Updated:</span> {formatDateTimeLabel(selectedEvent.updatedAt)}</p>
+                </div>
+
+                <div className="grid gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleEditEvent(selectedEvent)}
+                    className="btn-primary"
+                  >
+                    Edit Event
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteEvent(selectedEvent._id)}
+                    className="w-full p-3.5 border border-tertiary text-tertiary rounded-sm font-semibold transition-colors hover:bg-[#f7e5df]"
+                  >
+                    Delete Event
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={handleEventSubmit} className="space-y-5">
@@ -697,28 +870,21 @@ const Dashboard: React.FC = () => {
                   />
                 </div>
 
-                {eventDetails && (
-                  <div className="rounded-lg border border-outline-variant bg-surface-container/70 p-4 text-sm text-on-surface-variant">
-                    <p className="mb-1"><span className="font-semibold text-primary">Created:</span> {formatDateTimeLabel(eventDetails.createdAt)}</p>
-                    <p><span className="font-semibold text-primary">Last updated:</span> {formatDateTimeLabel(eventDetails.updatedAt)}</p>
-                  </div>
-                )}
-
                 <button
                   type="submit"
                   disabled={eventSubmitting}
                   className="btn-primary"
                 >
                   {eventSubmitting
-                    ? editingEventId
+                    ? eventPanelMode === 'edit'
                       ? 'Saving...'
                       : 'Creating...'
-                    : editingEventId
+                    : eventPanelMode === 'edit'
                       ? 'Save Event'
                       : 'Create Event'}
                 </button>
 
-                {editingEventId && (
+                {eventPanelMode === 'edit' && editingEventId && (
                   <button
                     type="button"
                     onClick={() => void handleDeleteEvent(editingEventId)}
