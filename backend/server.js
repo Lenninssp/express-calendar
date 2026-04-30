@@ -13,9 +13,6 @@ const socketAuth = require("./middleware/socketAuth");
 
 dotenv.config();
 
-// Connect to Database
-connectDB();
-
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -64,12 +61,16 @@ const frontendPath = path.join(__dirname, "../frontend/dist");
 app.use(express.static(frontendPath));
 
 // React fallback (SPA routing)
-app.get("/{*splat}", (req, res) => {
+app.get("*", (req, res) => {
   res.sendFile(path.join(frontendPath, "index.html"));
 });
 
 const PORT = process.env.PORT || 5000;
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Connect to Database and start server
+connectDB().then(() => {
+  server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
 });
+
