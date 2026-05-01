@@ -7,6 +7,7 @@ import { socketService } from '../api/socket';
 import CalendarManagementSection from './dashboard/CalendarManagementSection';
 import CalendarMonthView from './dashboard/CalendarMonthView';
 import EventSidePanel from './dashboard/EventSidePanel';
+import ToastStack from './dashboard/ToastStack';
 import { formatDateTimeInput, getDefaultEventRange } from './dashboard/dateUtils';
 import type { EventPanelMode } from './dashboard/types';
 
@@ -24,6 +25,11 @@ const DEFAULT_EVENT_FORM: EventPayload = {
   location: '',
   calendarId: '',
 };
+
+interface Toast {
+  id: number;
+  message: string;
+}
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -45,6 +51,16 @@ const Dashboard: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [eventError, setEventError] = useState('');
   const [eventSuccessMessage, setEventSuccessMessage] = useState('');
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const addToast = (message: string) => {
+    const id = Date.now() + Math.floor(Math.random() * 1000);
+    setToasts((current) => [...current, { id, message }]);
+  };
+
+  const dismissToast = (id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  };
 
   const handleLogout = () => {
     socketService.disconnect();
@@ -90,6 +106,22 @@ const Dashboard: React.FC = () => {
   }, [navigate]);
 
   useEffect(() => {
+    if (toasts.length === 0) {
+      return;
+    }
+
+    const timers = toasts.map((toast) =>
+      window.setTimeout(() => {
+        dismissToast(toast.id);
+      }, 3200),
+    );
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [toasts]);
+
+  useEffect(() => {
     let isMounted = true;
     let socketCleanup: (() => void) | undefined;
 
@@ -106,6 +138,8 @@ const Dashboard: React.FC = () => {
             return current;
           }
 
+          addToast(`Event created: ${incomingEvent.title}`);
+
           return [...current, incomingEvent].sort(
             (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
           );
@@ -117,11 +151,18 @@ const Dashboard: React.FC = () => {
           return;
         }
 
-        setEvents((current) =>
-          current
-            .map((event) => (event._id === incomingEvent._id ? incomingEvent : event))
-            .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
-        );
+        setEvents((current) => {
+          const hasMatch = current.some((event) => event._id === incomingEvent._id);
+          const nextEvents = hasMatch
+            ? current.map((event) => (event._id === incomingEvent._id ? incomingEvent : event))
+            : [...current, incomingEvent];
+
+          addToast(`Event updated: ${incomingEvent.title}`);
+
+          return nextEvents.sort(
+            (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+          );
+        });
 
         setSelectedEvent((current) =>
           current?._id === incomingEvent._id ? incomingEvent : current,
@@ -148,6 +189,7 @@ const Dashboard: React.FC = () => {
           return;
         }
 
+        addToast('Event deleted');
         setEvents((current) => current.filter((event) => event._id !== deletedEventId));
 
         if (selectedEvent?._id === deletedEventId || editingEventId === deletedEventId) {
@@ -402,6 +444,7 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen p-6 md:p-8">
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
       <header className="max-w-6xl mx-auto flex flex-col gap-5 md:flex-row md:justify-between md:items-center mb-10">
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-secondary mb-3">Dashboard</p>
