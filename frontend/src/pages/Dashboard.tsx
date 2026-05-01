@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { authService } from '../api/auth';
 import { calendarService, type Calendar, type CalendarPayload } from '../api/calendars';
 import { eventService, type CalendarEvent, type EventPayload } from '../api/events';
+import { socketService } from '../api/socket';
 import CalendarManagementSection from './dashboard/CalendarManagementSection';
 import CalendarMonthView from './dashboard/CalendarMonthView';
 import EventSidePanel from './dashboard/EventSidePanel';
@@ -46,6 +47,7 @@ const Dashboard: React.FC = () => {
   const [eventSuccessMessage, setEventSuccessMessage] = useState('');
 
   const handleLogout = () => {
+    socketService.disconnect();
     authService.logout();
     navigate('/login');
   };
@@ -74,6 +76,7 @@ const Dashboard: React.FC = () => {
         setError(message);
 
         if (message.toLowerCase().includes('token')) {
+          socketService.disconnect();
           authService.logout();
           navigate('/login');
         }
@@ -85,6 +88,94 @@ const Dashboard: React.FC = () => {
 
     void loadDashboardData();
   }, [navigate]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let socketCleanup: (() => void) | undefined;
+
+    try {
+      const socket = socketService.connect();
+
+      const handleEventCreated = (incomingEvent: CalendarEvent) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setEvents((current) => {
+          if (current.some((event) => event._id === incomingEvent._id)) {
+            return current;
+          }
+
+          return [...current, incomingEvent].sort(
+            (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+          );
+        });
+      };
+
+      const handleEventUpdated = (incomingEvent: CalendarEvent) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setEvents((current) =>
+          current
+            .map((event) => (event._id === incomingEvent._id ? incomingEvent : event))
+            .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+        );
+
+        setSelectedEvent((current) =>
+          current?._id === incomingEvent._id ? incomingEvent : current,
+        );
+
+        setEventForm((current) => {
+          if (editingEventId !== incomingEvent._id && selectedEvent?._id !== incomingEvent._id) {
+            return current;
+          }
+
+          return {
+            title: incomingEvent.title,
+            description: incomingEvent.description || '',
+            start: formatDateTimeInput(incomingEvent.start),
+            end: formatDateTimeInput(incomingEvent.end),
+            location: incomingEvent.location || '',
+            calendarId: incomingEvent.calendarId,
+          };
+        });
+      };
+
+      const handleEventDeleted = (deletedEventId: string) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setEvents((current) => current.filter((event) => event._id !== deletedEventId));
+
+        if (selectedEvent?._id === deletedEventId || editingEventId === deletedEventId) {
+          setSelectedEvent(null);
+          setEditingEventId(null);
+          setEventPanelMode('closed');
+          setEventForm(DEFAULT_EVENT_FORM);
+        }
+      };
+
+      socket.on('event:created', handleEventCreated);
+      socket.on('event:updated', handleEventUpdated);
+      socket.on('event:deleted', handleEventDeleted);
+
+      socketCleanup = () => {
+        socket.off('event:created', handleEventCreated);
+        socket.off('event:updated', handleEventUpdated);
+        socket.off('event:deleted', handleEventDeleted);
+      };
+    } catch {
+      socketCleanup = undefined;
+    }
+
+    return () => {
+      isMounted = false;
+      socketCleanup?.();
+    };
+  }, [editingEventId, selectedEvent]);
 
   const resetForm = () => {
     setForm(DEFAULT_FORM);
