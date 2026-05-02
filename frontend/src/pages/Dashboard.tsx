@@ -215,9 +215,17 @@ const Dashboard: React.FC = () => {
 
       const handleCalendarUpdated = (incomingCalendar: Calendar) => {
         if (!isMounted) return;
-        setCalendars((current) =>
-          current.map((c) => (c._id === incomingCalendar._id ? incomingCalendar : c))
-        );
+        setCalendars((current) => {
+          const hasMatch = current.some((c) => c._id === incomingCalendar._id);
+          if (hasMatch) {
+            // Check if data is actually different to avoid redundant toasts
+            const existing = current.find((c) => c._id === incomingCalendar._id);
+            if (JSON.stringify(existing) === JSON.stringify(incomingCalendar)) return current;
+            
+            return current.map((c) => (c._id === incomingCalendar._id ? incomingCalendar : c));
+          }
+          return [incomingCalendar, ...current];
+        });
         addToast(`Calendar updated: ${incomingCalendar.title}`);
       };
 
@@ -327,15 +335,22 @@ const Dashboard: React.FC = () => {
     try {
       if (editingId) {
         const updatedCalendar = await calendarService.update(editingId, form);
-        setCalendars((current) =>
-          current.map((calendar) =>
+        setCalendars((current) => {
+          // Check if socket already updated it
+          const existing = current.find((c) => c._id === editingId);
+          if (JSON.stringify(existing) === JSON.stringify(updatedCalendar)) return current;
+          
+          return current.map((calendar) =>
             calendar._id === editingId ? updatedCalendar : calendar,
-          ),
-        );
+          );
+        });
         setSuccessMessage('Calendar updated.');
       } else {
         const newCalendar = await calendarService.create(form);
-        setCalendars((current) => [newCalendar, ...current]);
+        setCalendars((current) => {
+          if (current.some((c) => c._id === newCalendar._id)) return current;
+          return [newCalendar, ...current];
+        });
         setSuccessMessage('Calendar created.');
       }
 
@@ -437,21 +452,26 @@ const Dashboard: React.FC = () => {
     try {
       if (editingEventId) {
         const updatedEvent = await eventService.update(editingEventId, eventForm);
-        setEvents((current) =>
-          current
+        setEvents((current) => {
+          // Check if socket already updated it
+          const existing = current.find((e) => e._id === editingEventId);
+          if (JSON.stringify(existing) === JSON.stringify(updatedEvent)) return current;
+
+          return current
             .map((item) => (item._id === editingEventId ? updatedEvent : item))
-            .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
-        );
+            .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+        });
         setSelectedEvent(updatedEvent);
         setEventPanelMode('view');
         setEventSuccessMessage('Event updated.');
       } else {
         const newEvent = await eventService.create(eventForm);
-        setEvents((current) =>
-          [...current, newEvent].sort(
+        setEvents((current) => {
+          if (current.some((e) => e._id === newEvent._id)) return current;
+          return [...current, newEvent].sort(
             (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
-          ),
-        );
+          );
+        });
         setSelectedEvent(newEvent);
         setEditingEventId(newEvent._id);
         setEventPanelMode('view');
