@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Calendar = require('../models/Calendar');
+const Event = require('../models/Event');
 const auth = require('../middleware/auth');
 
 // @route   POST /api/calendars
@@ -95,10 +96,14 @@ router.delete('/:id', auth, async (req, res) => {
       return res.status(404).json({ message: 'Calendar not found' });
     }
 
+    // Cascading delete: Remove all events linked to this calendar
+    await Event.deleteMany({ calendarId: req.params.id, owner: req.userId });
+
     await Calendar.findByIdAndDelete(req.params.id);
 
     req.io.to(req.userId).emit('calendar_deleted', req.params.id);
-    res.json({ message: 'Calendar removed' });
+    req.io.to(req.userId).emit('events_cleared', { calendarId: req.params.id });
+    res.json({ message: 'Calendar and associated events removed' });
   } catch (error) {
     console.error(error);
     if (error.kind === 'ObjectId') {
