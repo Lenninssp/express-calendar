@@ -232,25 +232,25 @@ const Dashboard: React.FC = () => {
         }
       };
 
-      socket.on('calendar_created' as any, handleCalendarCreated);
-      socket.on('calendar_updated' as any, handleCalendarUpdated);
-      socket.on('calendar_deleted' as any, handleCalendarDeleted);
+      socket.on('calendar:created' as any, handleCalendarCreated);
+      socket.on('calendar:updated' as any, handleCalendarUpdated);
+      socket.on('calendar:deleted' as any, handleCalendarDeleted);
 
       const handleEventsCleared = ({ calendarId }: { calendarId: string }) => {
         if (!isMounted) return;
         setEvents((current) => current.filter((e) => e.calendarId !== calendarId));
       };
 
-      socket.on('events_cleared' as any, handleEventsCleared);
+      socket.on('events:cleared' as any, handleEventsCleared);
 
       socketCleanup = () => {
         socket.off('event:created', handleEventCreated);
         socket.off('event:updated', handleEventUpdated);
         socket.off('event:deleted', handleEventDeleted);
-        socket.off('calendar_created' as any, handleCalendarCreated);
-        socket.off('calendar_updated' as any, handleCalendarUpdated);
-        socket.off('calendar_deleted' as any, handleCalendarDeleted);
-        socket.off('events_cleared' as any, handleEventsCleared);
+        socket.off('calendar:created' as any, handleCalendarCreated);
+        socket.off('calendar:updated' as any, handleCalendarUpdated);
+        socket.off('calendar:deleted' as any, handleCalendarDeleted);
+        socket.off('events:cleared' as any, handleEventsCleared);
       };
     } catch {
       socketCleanup = undefined;

@@ -17,7 +17,7 @@ router.post('/', auth, async (req, res) => {
     });
 
     const calendar = await newCalendar.save();
-    req.io.to(req.userId).emit('calendar_created', calendar);
+    req.io.to(req.userId).emit('calendar:created', calendar);
     res.status(201).json(calendar);
   } catch (error) {
     console.error(error);
@@ -75,7 +75,7 @@ router.put('/:id', auth, async (req, res) => {
       { new: true }
     );
 
-    req.io.to(req.userId).emit('calendar_updated', calendar);
+    req.io.to(req.userId).emit('calendar:updated', calendar);
     res.json(calendar);
   } catch (error) {
     console.error(error);
@@ -101,8 +101,8 @@ router.delete('/:id', auth, async (req, res) => {
 
     await Calendar.findByIdAndDelete(req.params.id);
 
-    req.io.to(req.userId).emit('calendar_deleted', req.params.id);
-    req.io.to(req.userId).emit('events_cleared', { calendarId: req.params.id });
+    req.io.to(req.userId).emit('calendar:deleted', req.params.id);
+    req.io.to(req.userId).emit('events:cleared', { calendarId: req.params.id });
     res.json({ message: 'Calendar and associated events removed' });
   } catch (error) {
     console.error(error);
