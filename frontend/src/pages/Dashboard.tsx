@@ -204,10 +204,53 @@ const Dashboard: React.FC = () => {
       socket.on('event:updated', handleEventUpdated);
       socket.on('event:deleted', handleEventDeleted);
 
+      const handleCalendarCreated = (incomingCalendar: Calendar) => {
+        if (!isMounted) return;
+        setCalendars((current) => {
+          if (current.some((c) => c._id === incomingCalendar._id)) return current;
+          addToast(`Calendar created: ${incomingCalendar.title}`);
+          return [incomingCalendar, ...current];
+        });
+      };
+
+      const handleCalendarUpdated = (incomingCalendar: Calendar) => {
+        if (!isMounted) return;
+        setCalendars((current) =>
+          current.map((c) => (c._id === incomingCalendar._id ? incomingCalendar : c))
+        );
+        addToast(`Calendar updated: ${incomingCalendar.title}`);
+      };
+
+      const handleCalendarDeleted = (deletedCalendarId: string) => {
+        if (!isMounted) return;
+        addToast('Calendar deleted');
+        setCalendars((current) => current.filter((c) => c._id !== deletedCalendarId));
+        setEvents((current) => current.filter((e) => e.calendarId !== deletedCalendarId));
+        
+        if (selectedCalendarId === deletedCalendarId) {
+          setSelectedCalendarId('all');
+        }
+      };
+
+      socket.on('calendar_created' as any, handleCalendarCreated);
+      socket.on('calendar_updated' as any, handleCalendarUpdated);
+      socket.on('calendar_deleted' as any, handleCalendarDeleted);
+
+      const handleEventsCleared = ({ calendarId }: { calendarId: string }) => {
+        if (!isMounted) return;
+        setEvents((current) => current.filter((e) => e.calendarId !== calendarId));
+      };
+
+      socket.on('events_cleared' as any, handleEventsCleared);
+
       socketCleanup = () => {
         socket.off('event:created', handleEventCreated);
         socket.off('event:updated', handleEventUpdated);
         socket.off('event:deleted', handleEventDeleted);
+        socket.off('calendar_created' as any, handleCalendarCreated);
+        socket.off('calendar_updated' as any, handleCalendarUpdated);
+        socket.off('calendar_deleted' as any, handleCalendarDeleted);
+        socket.off('events_cleared' as any, handleEventsCleared);
       };
     } catch {
       socketCleanup = undefined;
@@ -217,7 +260,7 @@ const Dashboard: React.FC = () => {
       isMounted = false;
       socketCleanup?.();
     };
-  }, [editingEventId, selectedEvent]);
+  }, [selectedCalendarId]); // Changed dependencies to be more stable
 
   const resetForm = () => {
     setForm(DEFAULT_FORM);
